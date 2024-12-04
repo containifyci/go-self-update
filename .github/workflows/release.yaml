@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/**'
+
+concurrency:
+  group: release_${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # for checkout
+  id-token: write # for authenticating to Google Cloud Platform
+  pull-requests: write # for updating pr
+
+jobs:
+  build:
+    uses: ./.github/workflows/containifyci.yaml
+    secrets: inherit
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Get Next Version
+        id: semver
+        uses: ietf-tools/semver-action@v1
+        with:
+          token: ${{ github.token }}
+          branch: main
+          noVersionBumpBehavior: silent
+          skipInvalidTags: true
+          maxTagsToFetch: 50
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        if: steps.semver.outputs.next
+        with:
+          allowUpdates: true
+          # draft: true
+          generateReleaseNotes: true
+          makeLatest: true
+          tag: ${{ steps.semver.outputs.next }}
