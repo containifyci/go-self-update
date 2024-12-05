@@ -32,7 +32,7 @@ func main() {
 	flag.Parse()
 
 	if *command == "update" {
-		updater := updater.NewUpdater(repoName, repoOwner, repoName, version, updater.WithUpdateHook(systemd.SystemdRestartHook))
+		updater := updater.NewUpdater(repoName, repoOwner, repoName, version, updater.WithUpdateHook(systemd.SystemdRestartHook("go-self-update")))
 		updated, err := updater.SelfUpdate()
 		if err != nil {
 			fmt.Printf("Update failed: %v\n", err)
