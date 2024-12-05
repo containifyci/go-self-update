@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -19,8 +20,8 @@ type Updater struct {
 	RepoOwner  string
 	RepoName   string
 	Version    string
-
-	client *github.Client
+	UpdateHook func() error
+	client     *github.Client
 }
 
 type Option func(*Updater)
@@ -28,6 +29,12 @@ type Option func(*Updater)
 func WithClient(client *github.Client) Option {
 	return func(u *Updater) {
 		u.client = client
+	}
+}
+
+func WithUpdateHook(fnc func() error) Option {
+	return func(u *Updater) {
+		u.UpdateHook = fnc
 	}
 }
 
@@ -90,6 +97,12 @@ func (u *Updater) SelfUpdate() (bool, error) {
 		return false, err
 	}
 
+	if u.UpdateHook != nil {
+		if err := u.UpdateHook(); err != nil {
+			return false, fmt.Errorf("failed to run update hook: %w", err)
+		}
+	}
+
 	return true, nil
 }
 
@@ -130,13 +143,51 @@ func downloadAsset(url string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
-func replaceBinary(newBinary, currentBinary string) error {
-	if err := os.Rename(newBinary, currentBinary); err != nil {
+func replaceBinary(src, dst string) error {
+	// Ensure the target binary directory exists
+	targetDir := filepath.Dir(dst)
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		return fmt.Errorf("failed target directory doesn't exists: %w", err)
+	}
+
+	// Create the target file in the same directory as the target binary
+	targetTemp := dst + ".tmp"
+
+	err := copyFile(src, targetTemp)
+	if err != nil {
+		return fmt.Errorf("failed to copy temp binary: %w", err)
+	}
+
+	defer os.Remove(targetTemp)
+	if err := os.Rename(targetTemp, dst); err != nil {
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 
-	if err := os.Chmod(currentBinary, 0755); err != nil {
+	if err := os.Chmod(dst, 0755); err != nil {
 		return fmt.Errorf("failed to set executable permission: %w", err)
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	// Open source file
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Open destination file
+	dstFile, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to open destination file: %w", err)
+	}
+	defer dstFile.Close()
+
+	// Copy contents
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
 	}
 
 	return nil
