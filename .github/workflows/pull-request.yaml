@@ -1,4 +1,4 @@
-name: Go service workflow
+name: Pull Request
 
 on:
   pull_request:
@@ -16,5 +16,10 @@ permissions:
 
 jobs:
   build:
-    uses: ./.github/workflows/containifyci.yaml
+    name: Build
+    uses: containifyci/engine-ci/.github/workflows/engine-ci-workflow.yml@v0
     secrets: inherit
+    with:
+      install_binary: true
+      dockerhub_user: "containifyci"
+
