@@ -11,9 +11,6 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: write # for checkout
-
 jobs:
   publish:
     uses: containifyci/.github/.github/workflows/artifacts.yml@v1
