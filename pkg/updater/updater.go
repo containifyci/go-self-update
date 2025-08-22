@@ -86,7 +86,11 @@ func (u *Updater) SelfUpdate() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer os.Remove(tmpFile)
+	defer func() {
+		if err := os.Remove(tmpFile); err != nil {
+			slog.Debug("Failed to remove temp file", "error", err)
+		}
+	}()
 
 	currentBinary, err := os.Executable()
 	if err != nil {
@@ -128,13 +132,21 @@ func downloadAsset(url string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to download asset: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Debug("Failed to close response body", "error", err)
+		}
+	}()
 
 	tmpFile, err := os.CreateTemp("", "go-self-update-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer tmpFile.Close()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			slog.Debug("Failed to close temp file", "error", err)
+		}
+	}()
 
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
 		return "", fmt.Errorf("failed to save asset: %w", err)
@@ -158,7 +170,11 @@ func replaceBinary(src, dst string) error {
 		return fmt.Errorf("failed to copy temp binary: %w", err)
 	}
 
-	defer os.Remove(targetTemp)
+	defer func() {
+		if err := os.Remove(targetTemp); err != nil {
+			slog.Debug("Failed to remove target temp file", "error", err)
+		}
+	}()
 	if err := os.Rename(targetTemp, dst); err != nil {
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
@@ -175,14 +191,22 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer srcFile.Close()
+	defer func() {
+		if err := srcFile.Close(); err != nil {
+			slog.Debug("Failed to close source file", "error", err)
+		}
+	}()
 
 	// Open destination file
 	dstFile, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return fmt.Errorf("failed to open destination file: %w", err)
 	}
-	defer dstFile.Close()
+	defer func() {
+		if err := dstFile.Close(); err != nil {
+			slog.Debug("Failed to close destination file", "error", err)
+		}
+	}()
 
 	// Copy contents
 	_, err = io.Copy(dstFile, srcFile)
