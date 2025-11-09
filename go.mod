@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/google/go-github/v66 v66.0.0
-	github.com/migueleliasweb/go-github-mock v1.4.0
+	github.com/migueleliasweb/go-github-mock v1.5.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.29.0
 )
