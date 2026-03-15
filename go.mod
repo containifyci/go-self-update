@@ -1,12 +1,12 @@
 module github.com/containifyci/go-self-update
 
-go 1.24.4
+go 1.25.0
 
 require (
 	github.com/google/go-github/v66 v66.0.0
 	github.com/migueleliasweb/go-github-mock v1.5.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/mod v0.33.0
+	golang.org/x/mod v0.34.0
 )
 
 require (
