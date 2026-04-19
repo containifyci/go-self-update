@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,9 +12,18 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/google/go-github/v66/github"
 	"golang.org/x/mod/semver"
 )
+
+type release struct {
+	TagName string         `json:"tag_name"`
+	Assets  []releaseAsset `json:"assets"`
+}
+
+type releaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
 
 type Updater struct {
 	BinaryName string
@@ -21,14 +31,21 @@ type Updater struct {
 	RepoName   string
 	Version    string
 	UpdateHook func() error
-	client     *github.Client
+	httpClient *http.Client
+	baseURL    string
 }
 
 type Option func(*Updater)
 
-func WithClient(client *github.Client) Option {
+func WithHTTPClient(client *http.Client) Option {
 	return func(u *Updater) {
-		u.client = client
+		u.httpClient = client
+	}
+}
+
+func withBaseURL(url string) Option {
+	return func(u *Updater) {
+		u.baseURL = url
 	}
 }
 
@@ -54,7 +71,8 @@ func NewUpdater(BinaryName, repoOwner, repoName, version string, opts ...Option)
 		RepoOwner:  repoOwner,
 		RepoName:   repoName,
 		Version:    version,
-		client:     github.NewClient(nil),
+		httpClient: http.DefaultClient,
+		baseURL:    "https://api.github.com",
 	}
 
 	for _, opt := range opts {
@@ -65,19 +83,41 @@ func NewUpdater(BinaryName, repoOwner, repoName, version string, opts ...Option)
 
 func (u *Updater) SelfUpdate() (bool, error) {
 	ctx := context.Background()
-	release, _, err := u.client.Repositories.GetLatestRelease(ctx, u.RepoOwner, u.RepoName)
+
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", u.baseURL, u.RepoOwner, u.RepoName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := u.httpClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch latest release: %w", err)
 	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("Failed to close response body", "error", err)
+		}
+	}()
 
-	slog.Debug("Latest release", "tag", *release.TagName)
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
 
-	if !CompareVersions(u.Version, *release.TagName) {
+	var rel release
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return false, fmt.Errorf("failed to decode release response: %w", err)
+	}
+
+	slog.Debug("Latest release", "tag", rel.TagName)
+
+	if !CompareVersions(u.Version, rel.TagName) {
 		slog.Debug("Already up-to-date")
 		return false, nil
 	}
 
-	assetURL, err := findAssetURL(u.BinaryName, release.Assets)
+	assetURL, err := findAssetURL(u.BinaryName, rel.Assets)
 	if err != nil {
 		return false, err
 	}
@@ -110,14 +150,12 @@ func (u *Updater) SelfUpdate() (bool, error) {
 	return true, nil
 }
 
-func findAssetURL(binaryName string, assets []*github.ReleaseAsset) (string, error) {
+func findAssetURL(binaryName string, assets []releaseAsset) (string, error) {
 	slog.Debug("Finding asset URL")
 	for _, asset := range assets {
-		if asset.Name != nil && asset.BrowserDownloadURL != nil {
-			slog.Debug("Checking asset", "name", *asset.Name, "url", *asset.BrowserDownloadURL)
-			if matchBinaryName(binaryName, *asset.Name) {
-				return *asset.BrowserDownloadURL, nil
-			}
+		slog.Debug("Checking asset", "name", asset.Name, "url", asset.BrowserDownloadURL)
+		if matchBinaryName(binaryName, asset.Name) {
+			return asset.BrowserDownloadURL, nil
 		}
 	}
 	return "", fmt.Errorf("no matching binary found for current %s %s", runtime.GOOS, runtime.GOARCH)
