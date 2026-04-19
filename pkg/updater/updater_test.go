@@ -1,14 +1,13 @@
 package updater
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
 	"testing"
 
-	"github.com/google/go-github/v66/github"
-	"github.com/migueleliasweb/go-github-mock/src/mock"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,29 +17,32 @@ func TestNewUpdater(t *testing.T) {
 }
 
 func TestSelfUpdate(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	assetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("mock binary data"))
 	}))
-	defer server.Close()
-	mockedHTTPClient := mock.NewMockedHTTPClient(
-		mock.WithRequestMatch(
-			mock.GetReposReleasesLatestByOwnerByRepo,
-			github.RepositoryRelease{
-				Name:    github.String("test"),
-				TagName: github.String("v1.0.0"),
-				Assets: []*github.ReleaseAsset{
+	defer assetServer.Close()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/test/test/releases/latest" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(release{
+				TagName: "v1.0.0",
+				Assets: []releaseAsset{
 					{
-						Name:               github.String(fmt.Sprintf("test_%s_%s", runtime.GOOS, runtime.GOARCH)),
-						BrowserDownloadURL: github.String(server.URL),
+						Name:               fmt.Sprintf("test_%s_%s", runtime.GOOS, runtime.GOARCH),
+						BrowserDownloadURL: assetServer.URL,
 					},
 				},
-			},
-		),
-	)
-	c := github.NewClient(mockedHTTPClient)
-	u := NewUpdater("test", "test", "test", "test", WithClient(c))
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer apiServer.Close()
+
+	u := NewUpdater("test", "test", "test", "test", withBaseURL(apiServer.URL))
 	updated, err := u.SelfUpdate()
 	assert.NoError(t, err)
 	assert.True(t, updated)
